@@ -4,16 +4,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import events.utils.api.Sender;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.*;
 import org.keycloak.services.managers.AuthenticationManager;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 @Slf4j
 public class RestEventSender implements Sender {
-
-    public static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
-    OkHttpClient client = new OkHttpClient();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -45,20 +45,23 @@ public class RestEventSender implements Sender {
     }
 
     private boolean send(String json, String url, AuthenticationManager.AuthResult authenticate) {
-        RequestBody body = RequestBody.create(json, JSON);
-        Request request = new Request.Builder()
-                .url(url)
+        HttpRequest request = HttpRequest
+                .newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + authenticate.getToken())
-                .post(body)
+                .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
+        log.info("Sending data to url {}", request);
 
-        try (Response response = client.newCall(request).execute()) {
-            String string = response.body() != null ? response.body().string() : "";
+        HttpClient client = HttpClient.newHttpClient();
+
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            String string = response.body();
             log.info("Sending data to url. Request: {}", string);
             return true;
 
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             log.error("Failed to send request to user-service {}", request);
             return false;
         }

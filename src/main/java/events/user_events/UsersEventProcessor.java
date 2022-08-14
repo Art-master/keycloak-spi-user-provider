@@ -37,7 +37,9 @@ public class UsersEventProcessor extends EventTypeMetaInfo implements EventProce
         var dto = new UserEventRequest(login, pass);
 
         var transport = RestEventSender.instance();
-        return transport.send(dto, getClientUrl(), authenticate);
+        var res = transport.send(dto, getClientUrl(), authenticate);
+        if (!res) event.setError("Failed to synchronize with the service: " + getClientUrl());
+        return res;
     }
 
     protected boolean needToSend(AdminEvent event) {
