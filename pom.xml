@@ -5,24 +5,25 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.keycloak.listener</groupId>
-    <artifactId>event-listener-keycloak-extension</artifactId>
-    <version>1.0-SNAPSHOT</version>
-
-    <parent>
-        <groupId>org.keycloak</groupId>
-        <artifactId>keycloak-parent</artifactId>
-        <version>19.0.1</version>
-    </parent>
+    <artifactId>user-provider-keycloak-extension</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
 
     <properties>
         <maven.compiler.target>11</maven.compiler.target>
         <maven.compiler.source>11</maven.compiler.source>
-        <keycloak.version>19.0.1</keycloak.version>
+        <keycloak.version>20.0.0</keycloak.version>
         <lombok.version>1.18.24</lombok.version>
         <okhttp.version>4.10.0</okhttp.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.keycloak</groupId>
+            <artifactId>keycloak-core</artifactId>
+            <version>${keycloak.version}</version>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.keycloak</groupId>
             <artifactId>keycloak-server-spi</artifactId>
@@ -48,13 +49,16 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>org.jboss.logging</groupId>
-            <artifactId>jboss-logging</artifactId>
+            <groupId>org.keycloak</groupId>
+            <artifactId>keycloak-model-legacy</artifactId>
+            <version>${keycloak.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>org.jboss.spec.javax.ws.rs</groupId>
-            <artifactId>jboss-jaxrs-api_2.1_spec</artifactId>
+            <groupId>org.jboss.logging</groupId>
+            <artifactId>jboss-logging</artifactId>
+            <version>3.5.0.Final</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -64,25 +68,8 @@
         </dependency>
     </dependencies>
 
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>org.keycloak</groupId>
-                <artifactId>keycloak-common</artifactId>
-                <version>${keycloak.version}</version>
-                <scope>provided</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.keycloak</groupId>
-                <artifactId>keycloak-core</artifactId>
-                <version>${keycloak.version}</version>
-                <scope>provided</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <build>
-        <finalName>event-listener-keycloak-extension</finalName>
+        <finalName>user-provider-keycloak-extension</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
