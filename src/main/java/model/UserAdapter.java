@@ -1,3 +1,4 @@
+package model;
 
 import model.User;
 import model.UserRoleModel;

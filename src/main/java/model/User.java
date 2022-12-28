@@ -1,6 +1,7 @@
 package model;
 
 import lombok.Data;
+import org.keycloak.models.RealmModel;
 
 import java.util.List;
 
@@ -15,4 +16,9 @@ public class User {
     private boolean enabled;
     private Long created;
     private List<String> roles;
+
+
+    public static User fromRealmModel(RealmModel model) {
+        return new User(); //TODO
+    }
 }
