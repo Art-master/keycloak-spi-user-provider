@@ -1,7 +1,5 @@
 package model;
 
-import model.User;
-import model.UserRoleModel;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.LegacyUserCredentialManager;
 import org.keycloak.models.*;

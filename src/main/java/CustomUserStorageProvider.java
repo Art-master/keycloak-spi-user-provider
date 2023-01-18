@@ -1,3 +1,5 @@
+import com.fasterxml.jackson.core.type.TypeReference;
+import lombok.extern.slf4j.Slf4j;
 import model.User;
 import model.UserAdapter;
 import org.jetbrains.annotations.Nullable;
@@ -8,18 +10,21 @@ import org.keycloak.credential.CredentialInputUpdater;
 import org.keycloak.credential.CredentialInputValidator;
 import org.keycloak.models.*;
 import org.keycloak.models.credential.PasswordCredentialModel;
+import org.keycloak.services.ErrorResponseException;
 import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.UserLookupProvider;
 import org.keycloak.storage.user.UserQueryProvider;
 import org.keycloak.storage.user.UserRegistrationProvider;
 
+import javax.ws.rs.core.Response;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Stream;
 
+@Slf4j
 public class CustomUserStorageProvider implements UserStorageProvider, UserLookupProvider, UserQueryProvider, CredentialInputUpdater,
         CredentialInputValidator, UserRegistrationProvider {
 
@@ -32,7 +37,14 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
         this.session = session;
         this.model = componentModel;
 
-        baseUrl = componentModel.get(ExtConfig.USER_SERVICE_BASE_URL.getConfigKey());
+        baseUrl = getBaseUrl();
+    }
+
+    private String getBaseUrl() {
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            return System.getenv("USER_MANAGEMENT_SERVICE_URI") + "/users";
+        }
+        return baseUrl;
     }
 
     @Override
@@ -51,15 +63,16 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
             return false;
         }
         UserCredentialModel cred = (UserCredentialModel) input;
-        boolean answer = false;
+        boolean answer;
         try {
-            SimpleHttp http = SimpleHttp.doGet(baseUrl + "/validate_credentials", session);
+            SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/validate_credentials", session);
             http.param("name", user.getUsername());
             http.param("password", cred.getChallengeResponse());
 
             answer = http.asJson(Boolean.class);
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Request error", Response.Status.BAD_REQUEST);
         }
         return answer;
     }
@@ -70,16 +83,18 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
             return false;
         }
         UserCredentialModel cred = (UserCredentialModel) input;
+        String externalId = StorageId.externalId(user.getId());
 
-        boolean answer = false;
+        boolean answer;
         try {
-            SimpleHttp http = SimpleHttp.doGet(baseUrl + "/update_credentials", session);
+            SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/" + externalId + "/update_credentials", session);
             http.param("name", user.getUsername());
             http.param("password", cred.getChallengeResponse());
 
             answer = http.asJson(Boolean.class);
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Request error", Response.Status.BAD_REQUEST);
         }
         return answer;
     }
@@ -97,73 +112,79 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
     public UserModel getUserById(RealmModel realm, String id) {
         String externalId = StorageId.externalId(id);
 
-        SimpleHttp http = SimpleHttp.doGet(baseUrl + externalId, session);
-        User user = null;
-        try {
-            user = http.asJson(User.class);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        if (Objects.isNull(externalId)) return null;
 
-        return new UserAdapter(session, realm, model, user);
+        return getUserByEmail(realm, externalId);
     }
 
     @Override
     public UserModel getUserByUsername(RealmModel realm, String username) {
-        return getUserModel(realm, "user_name", username);
+        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/get_by_login", session);
+        http.param("login", username);
+
+        return sendRequest(realm, http);
     }
 
     @Override
     public UserModel getUserByEmail(RealmModel realm, String email) {
-        return getUserModel(realm, "email", email);
-    }
+        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/get_by_email", session);
+        http.param("email", email);
 
-    @Nullable
-    private UserModel getUserModel(RealmModel realm, String paramName, String paramValue) {
-        SimpleHttp http = SimpleHttp.doGet(baseUrl, session);
-        http.param(paramName, paramValue);
         return sendRequest(realm, http);
     }
 
     @Override
     public int getUsersCount(RealmModel realm) {
-        String url = baseUrl + "/get_users_count";
+        String url = getBaseUrl() + "/get_users_count";
         SimpleHttp http = SimpleHttp.doGet(url, session);
-        long count = 0;
+        long count;
         try {
             count = http.asJson(Long.class);
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Request error", Response.Status.BAD_REQUEST);
         }
 
         return (int) count;
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Stream<UserModel> searchForUserStream(RealmModel realm, String search) {
-        SimpleHttp http = SimpleHttp.doGet(baseUrl, session);
-        http.param("search", search);
+        return searchForUser(realm, search, null, null);
+    }
 
-        List<User> users = new ArrayList<>();
+    public Stream<UserModel> searchForUser(RealmModel realm, String search, Integer firstResult, Integer maxResults) {
+        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/search", session);
+        http.param("data", search);
+        if (firstResult != null) http.param("firstResult", String.valueOf(firstResult));
+        if (maxResults != null) http.param("maxResult", String.valueOf(maxResults));
+
+        List<User> users;
 
         try {
-            users = http.asJson(List.class);
+            users = http.asJson(new TypeReference<>() {
+            });
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Request error", Response.Status.BAD_REQUEST);
         }
 
         return users.stream().map(user -> new UserAdapter(session, realm, model, user));
     }
 
     @Override
+    public Stream<UserModel> searchForUserStream(RealmModel realm, Map<String, String> params) {
+        return searchForUser(realm, "*", null, null);
+    }
+
+    @Override
     public Stream<UserModel> searchForUserStream(RealmModel realm, String search, Integer firstResult, Integer maxResults) {
-        return searchForUserStream(realm, search);
+        return searchForUser(realm, search, firstResult, maxResults);
     }
 
     @Override
     public Stream<UserModel> searchForUserStream(RealmModel realm, Map<String, String> params, Integer firstResult, Integer maxResults) {
-        return searchForUserStream(realm, ""); //TODO
+        return searchForUser(realm, "*", firstResult, maxResults); //TODO
     }
 
     @Override
@@ -178,21 +199,20 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
     @Override
     public UserModel addUser(RealmModel realm, String username) {
-        SimpleHttp http = SimpleHttp.doPost(baseUrl, session);
-        http.json(User.fromRealmModel(realm));
-        return sendRequest(realm, http);
+        throw new ErrorResponseException("Error", "Creating a user from the interface is prohibited", Response.Status.CONFLICT);
     }
 
     @Nullable
     private UserModel sendRequest(RealmModel realm, SimpleHttp http) {
-        User user = null;
+        User user;
         try {
             user = http.asJson(User.class);
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Request error", Response.Status.BAD_REQUEST);
         }
 
-        if (user != null) {
+        if (user != null && user.getId() != null) {
             return new UserAdapter(session, realm, model, user);
         }
         return null;
@@ -200,15 +220,17 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
     @Override
     public boolean removeUser(RealmModel realm, UserModel user) {
-        SimpleHttp http = SimpleHttp.doDelete(baseUrl, session);
-        http.param("id", user.getId());
+        String email = StorageId.externalId(user.getId());
+        SimpleHttp http = SimpleHttp.doDelete(getBaseUrl() + "/delete_by_email", session);
+        http.param("email", email);
 
-        boolean isSuccess = false;
+        boolean isSuccess;
 
         try {
             isSuccess = http.asJson(Boolean.class);
         } catch (IOException e) {
             e.printStackTrace();
+            throw new ErrorResponseException("Error", "Deleting user error", Response.Status.BAD_REQUEST);
         }
 
         return isSuccess;
@@ -216,6 +238,5 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
     @Override
     public void close() {
-
     }
 }
