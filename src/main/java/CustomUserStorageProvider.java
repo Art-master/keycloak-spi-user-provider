@@ -8,9 +8,15 @@ import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialInputUpdater;
 import org.keycloak.credential.CredentialInputValidator;
+import org.keycloak.crypto.AsymmetricSignatureSignerContext;
+import org.keycloak.crypto.KeyUse;
+import org.keycloak.crypto.KeyWrapper;
+import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.*;
 import org.keycloak.models.credential.PasswordCredentialModel;
+import org.keycloak.representations.AccessToken;
 import org.keycloak.services.ErrorResponseException;
+import org.keycloak.services.Urls;
 import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.UserLookupProvider;
@@ -23,6 +29,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
+
+import static org.keycloak.broker.provider.util.SimpleHttp.doDelete;
+import static org.keycloak.broker.provider.util.SimpleHttp.doGet;
 
 @Slf4j
 public class CustomUserStorageProvider implements UserStorageProvider, UserLookupProvider, UserQueryProvider, CredentialInputUpdater,
@@ -65,7 +74,8 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
         UserCredentialModel cred = (UserCredentialModel) input;
         boolean answer;
         try {
-            SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/validate_credentials", session);
+            SimpleHttp http = doGet(getBaseUrl() + "/validate_credentials", session);
+            withSecurity(http, user.getId(), session);
             http.param("name", user.getUsername());
             http.param("password", cred.getChallengeResponse());
 
@@ -87,7 +97,8 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
         boolean answer;
         try {
-            SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/" + externalId + "/update_credentials", session);
+            SimpleHttp http = doGet(getBaseUrl() + "/" + externalId + "/update_credentials", session);
+            withSecurity(http, user.getId(), session);
             http.param("name", user.getUsername());
             http.param("password", cred.getChallengeResponse());
 
@@ -119,7 +130,8 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
     @Override
     public UserModel getUserByUsername(RealmModel realm, String username) {
-        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/get_by_login", session);
+        SimpleHttp http = doGet(getBaseUrl() + "/get_by_login", session);
+        withSecurity(http, realm.getId(), session);
         http.param("login", username);
 
         return sendRequest(realm, http);
@@ -127,7 +139,8 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
 
     @Override
     public UserModel getUserByEmail(RealmModel realm, String email) {
-        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/get_by_email", session);
+        SimpleHttp http = doGet(getBaseUrl() + "/get_by_email", session);
+        withSecurity(http, realm.getId(), session);
         http.param("email", email);
 
         return sendRequest(realm, http);
@@ -136,9 +149,10 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
     @Override
     public int getUsersCount(RealmModel realm) {
         String url = getBaseUrl() + "/get_users_count";
-        SimpleHttp http = SimpleHttp.doGet(url, session);
+        SimpleHttp http = doGet(url, session);
         long count;
         try {
+            withSecurity(http, realm.getId(), session);
             count = http.asJson(Long.class);
         } catch (IOException e) {
             e.printStackTrace();
@@ -154,8 +168,10 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
     }
 
     public Stream<UserModel> searchForUser(RealmModel realm, String search, Integer firstResult, Integer maxResults) {
-        SimpleHttp http = SimpleHttp.doGet(getBaseUrl() + "/search", session);
+        SimpleHttp http = doGet(getBaseUrl() + "/search", session);
+        withSecurity(http, realm.getId(), session);
         http.param("data", search);
+
         if (firstResult != null) http.param("firstResult", String.valueOf(firstResult));
         if (maxResults != null) http.param("maxResult", String.valueOf(maxResults));
 
@@ -206,6 +222,7 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
     private UserModel sendRequest(RealmModel realm, SimpleHttp http) {
         User user;
         try {
+            withSecurity(http, realm.getId(), session);
             user = http.asJson(User.class);
         } catch (IOException e) {
             e.printStackTrace();
@@ -221,7 +238,8 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
     @Override
     public boolean removeUser(RealmModel realm, UserModel user) {
         String email = StorageId.externalId(user.getId());
-        SimpleHttp http = SimpleHttp.doDelete(getBaseUrl() + "/delete_by_email", session);
+        SimpleHttp http = doDelete(getBaseUrl() + "/delete_by_email", session);
+        withSecurity(http, realm.getId(), session);
         http.param("email", email);
 
         boolean isSuccess;
@@ -234,6 +252,25 @@ public class CustomUserStorageProvider implements UserStorageProvider, UserLooku
         }
 
         return isSuccess;
+    }
+
+    private void withSecurity(SimpleHttp http, String id, KeycloakSession keycloakSession) {
+        String token = getAccessToken(id, keycloakSession);
+        http.header("Authorization", "Bearer " + token);
+    }
+
+    public String getAccessToken(String id, KeycloakSession keycloakSession) {
+        KeycloakContext keycloakContext = keycloakSession.getContext();
+
+        AccessToken token = new AccessToken();
+        token.subject(id);
+        token.issuer(Urls.realmIssuer(keycloakContext.getUri().getBaseUri(), keycloakContext.getRealm().getName()));
+        token.issuedNow();
+        token.expiration((int) (token.getIat() + 60L)); //Lifetime of 60 seconds
+
+        KeyWrapper key = keycloakSession.keys().getActiveKey(keycloakContext.getRealm(), KeyUse.SIG, "RS256");
+
+        return new JWSBuilder().kid(key.getKid()).type("JWT").jsonContent(token).sign(new AsymmetricSignatureSignerContext(key));
     }
 
     @Override
