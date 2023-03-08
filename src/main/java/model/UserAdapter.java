@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static model.CustomAttribute.SYSTEM_USER_ID;
+
 public class UserAdapter extends AbstractUserAdapter {
 
     private final User user;
@@ -64,6 +66,7 @@ public class UserAdapter extends AbstractUserAdapter {
         attributes.add(UserModel.EMAIL, getEmail());
         attributes.add(UserModel.FIRST_NAME, getFirstName());
         attributes.add(UserModel.LAST_NAME, getLastName());
+        attributes.add(SYSTEM_USER_ID, user.getId());
         return attributes;
     }
 

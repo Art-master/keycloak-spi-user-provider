@@ -19,12 +19,4 @@ public class User {
     private boolean enabled;
     private Long created;
     private List<String> roles = new ArrayList<>();
-
-
-    public static User fromRealmModel(RealmModel model) {
-        User user = new User();
-        user.setUsername(model.getName());
-        user.setEmail(model.getEmailTheme());
-        return new User(); //TODO
-    }
 }
